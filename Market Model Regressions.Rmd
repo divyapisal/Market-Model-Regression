@@ -1,0 +1,109 @@
+---
+title: "Market Model Regressions"
+author: "Diyva Pisal"
+date: "09/25/2017"
+output:
+  pdf_document: default
+---
+
+#Downloading all required libraries and input data
+```{r}
+library(plyr)
+require(dplyr)
+library(lme4)
+library(data.table)
+library(base)
+setwd("C:/Users/DivyaPisal/Desktop/B2/CSV")
+data1 <- "B2 Stocks.csv"
+data2 <- "B2 Market.csv"
+```
+#Creating appropriate data table for further regression analysis
+```{r}
+mydat1 <- read.csv(data1, header = T, sep =",") #Reading csv files.
+mydat2 <- read.csv(data2, header = T, sep =",")
+
+mydat1 <- mydat1[, c(2,3,5)] #Removing unnecessary columns.
+
+mydat1$date <- as.Date(mydat1$date, "%m/%d/%Y") #Converting date columns into date format.
+mydat2$DATE <- as.Date(as.character(mydat2$DATE), "%Y%m%d")
+
+colnames(mydat2) <- c("date", "sprtrn") 
+#Assigned the same "date" name for the second file in order to filter them later.
+
+mydat1 <- data.table(mydat1) #Converting data frames in data tables.
+mydat2 <- data.table(mydat2)
+
+#We merged two data tables into one, grouping by date.
+df <- left_join(mydat1, mydat2, by=c("date")) 
+df <- data.table(df) #Converting data frames in data tables.
+
+num <- data.table(table(df$TICKER))
+#Calculated number of observations for each company (ticker).
+
+colnames(num) <- c("Ticker","Observations") 
+#Giving names for the columns for data table of number of observation.
+
+df$RET <- as.numeric(as.character(df$RET)) 
+#Converting asset return values in numeric. As a result we receive warning that NA were created.
+
+df <- df[complete.cases(df), ] #removing rows contaning NA.
+```
+#Regression analysis
+```{r}
+fits <- lmList(RET ~ sprtrn | TICKER, data=df) #Regression for every firm.
+FirstPart <- coefficients(fits) #Extracting coefficients.
+Rsquared <- summary(fits)$r.squared  #Extracting R-squared.
+
+Newdf1 <- cbind(FirstPart, Rsquared) #Combining all data frames together.
+Newdf2 <- cbind(Newdf1 , num)
+```
+#Cook distance
+```{r}
+Cook <- lapply(fits, cooks.distance) #Calculating all cook's values
+
+MostInfObs <- unlist(Cook, use.names=FALSE) 
+#Unlisted and converted the Cook results into a data frame to merge with df table.
+MostInfObs<-data.frame(MostInfObs)
+dfnewtwo <- cbind(df, MostInfObs)
+dfnewtwo <- dfnewtwo[, c(1,2,5)]
+
+dfnewthree <- dfnewtwo%>%group_by(TICKER)%>%filter(MostInfObs == max(MostInfObs))%>%arrange(TICKER) 
+#Extracting most influential observations with related dates.
+dfnewthree <- data.table(dfnewthree)
+
+
+Newdfone <- cbind(dfnewthree[,c(2)],Newdf2[,-c(4)], dfnewthree[, c(1,3)]) 
+#Merging all results together.
+
+colnames(Newdfone) <- c("Ticker","Alpha", "Beta", "Rsquared", "NumObs","Dates","MostInfluentialObs")
+#Giving names for the columns for the first final data table and compile it.
+
+```
+# We calculate the highest and lowest indicators for alpha, beta and R squared from Newdfone. Both the tickers and the values are shown in the second summary. 
+```{r}
+HighestAlpha1 <- Newdfone$Ticker[which.max(Newdfone$Alpha)] 
+HighestAlpha <- rbind(as.character(HighestAlpha1), round(max(Newdfone$Alpha), digits=6))
+
+LowestAlpha1 <- Newdfone$Ticker[which.min(Newdfone$Alpha)]
+LowestAlpha <- rbind(as.character(LowestAlpha1), round(min(Newdfone$Alpha), digits=6))
+
+HighestBeta1 <- Newdfone$Ticker[which.max(Newdfone$Beta)]
+HighestBeta <- rbind(as.character(HighestBeta1), round(max(Newdfone$Beta), digits=6))
+
+LowestBeta1 <- Newdfone$Ticker[which.min(Newdfone$Beta)]
+LowestBeta <- rbind(as.character(LowestBeta1), round(min(Newdfone$Beta), digits=6))
+
+HighestRSquared1 <- Newdfone$Ticker[which.min(Newdfone$Rsquared)]
+HighestRSquared <- rbind(as.character(HighestRSquared1), round(max(Newdfone$Rsquared), digits=6))
+
+LowestRSquared1 <- Newdfone$Ticker[which.max(Newdfone$Rsquared)]
+LowestRSquared <- rbind(as.character(LowestRSquared1), round(max(Newdfone$Rsquared), digits=6))
+
+Table2 <- cbind(HighestAlpha, LowestAlpha, HighestBeta, LowestBeta, HighestRSquared, LowestRSquared)
+colnames(Table2) <- c("HighestAlpha", "LowestAlpha", "HighestBeta", "LowestBeta", 
+                      "HighestRSquared", "LowestRSquared")
+
+# After creating the two summary we combine them into a list called myreg.
+myreg <- list(Summary1 = Newdfone, Summary2= Table2)
+myreg
+```
